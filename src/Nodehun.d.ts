@@ -1,6 +1,6 @@
 declare module 'nodehun' {
   export class Nodehun {
-    constructor(affix: Buffer, dictionary: Buffer);
+    constructor(affix: Buffer, dictionary: Buffer, notPath: boolean);
     
     spell(word: string): Promise<boolean>;
     spellSync(word: string): boolean;

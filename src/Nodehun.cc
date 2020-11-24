@@ -14,6 +14,7 @@
 const std::string INVALID_NUMBER_OF_ARGUMENTS = "Invalid number of arguments.";
 const std::string INVALID_FIRST_ARGUMENT = "First argument is invalid (incorrect type).";
 const std::string INVALID_SECOND_ARGUMENT = "Second argument is invalid (incorrect type).";
+const std::string INVALID_THIRD_ARGUMENT = "Third argument is invalid (incorrect type).";
 const std::string INVALID_CONSTRUCTOR_CALL = "Use the new operator to create an instance of this object.";
 
 // LOGGING
@@ -64,8 +65,10 @@ Nodehun::Nodehun(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Nodehun>(inf
 
   Napi::Buffer<char> affixBuffer = info[0].As<Napi::Buffer<char>>();
   Napi::Buffer<char> dictionaryBuffer = info[1].As<Napi::Buffer<char>>();
-
-  context = new HunspellContext(new Hunspell(affixBuffer.Data(), dictionaryBuffer.Data(), NULL, true));
+  Napi::Boolean _notPath = info[2].As<Napi::Boolean>();
+  bool notPath = _notPath.Value();
+  
+  context = new HunspellContext(new Hunspell(affixBuffer.Data(), dictionaryBuffer.Data(), NULL, notPath));
 };
 
 Nodehun::~Nodehun() {
@@ -79,12 +82,14 @@ Napi::Object Nodehun::NewInstance(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   Napi::EscapableHandleScope scope(env);
 
-  if (info.Length() != 2) {
+  if (info.Length() != 3) {
     Napi::Error::New(env, INVALID_NUMBER_OF_ARGUMENTS).ThrowAsJavaScriptException();
   } else if (!info[0].IsBuffer()) {
     Napi::Error::New(env, INVALID_FIRST_ARGUMENT).ThrowAsJavaScriptException();
   } else if (!info[1].IsBuffer()) {
     Napi::Error::New(env, INVALID_SECOND_ARGUMENT).ThrowAsJavaScriptException();
+  } else if (!info[2].IsBoolean()) {
+    Napi::Error::New(env, INVALID_THIRD_ARGUMENT).ThrowAsJavaScriptException();
   } else if (!info.IsConstructCall()) {
     Napi::Error::New(env, INVALID_CONSTRUCTOR_CALL).ThrowAsJavaScriptException();
   }
@@ -92,7 +97,7 @@ Napi::Object Nodehun::NewInstance(const Napi::CallbackInfo& info) {
   if (env.IsExceptionPending()) {
     return Napi::Object::New(env);
   } else {
-    Napi::Object obj = constructor.New({info[0], info[1]});
+    Napi::Object obj = constructor.New({info[0], info[1], info[2]});
 
     return scope.Escape(napi_value(obj)).ToObject();
   }
@@ -382,6 +387,9 @@ Napi::Value Nodehun::generate(const Napi::CallbackInfo& info) {
   } else if (!info[1].IsString()) {
     Napi::Error error = Napi::Error::New(env, INVALID_SECOND_ARGUMENT);
     deferred.Reject(error.Value());
+  } else if (!info[2].IsBoolean()) {
+    Napi::Error error = Napi::Error::New(env, INVALID_THIRD_ARGUMENT);
+    deferred.Reject(error.Value());
   } else {
     std::string word = info[0].ToString().Utf8Value();
     std::string example = info[1].ToString().Utf8Value();
@@ -412,6 +420,10 @@ Napi::Value Nodehun::generateSync(const Napi::CallbackInfo& info) {
     return error.Value();
   } else if (!info[1].IsString()) {
     Napi::Error error = Napi::Error::New(env, INVALID_SECOND_ARGUMENT);
+    error.ThrowAsJavaScriptException();
+    return error.Value();
+  } else if (!info[2].IsBoolean()) {
+    Napi::Error error = Napi::Error::New(env, INVALID_THIRD_ARGUMENT);
     error.ThrowAsJavaScriptException();
     return error.Value();
   } else {
@@ -507,6 +519,11 @@ Napi::Value Nodehun::addWithAffixSync(const Napi::CallbackInfo& info) {
     error.ThrowAsJavaScriptException();
 
     return error.Value();
+  } else if (!info[2].IsBoolean()) {
+    Napi::Error error = Napi::Error::New(env, INVALID_THIRD_ARGUMENT);
+    error.ThrowAsJavaScriptException();
+
+    return error.Value();
   } else {
     std::string word = info[0].ToString().Utf8Value();
     std::string example = info[1].ToString().Utf8Value();
@@ -533,6 +550,9 @@ Napi::Value Nodehun::addWithAffix(const Napi::CallbackInfo& info) {
     deferred.Reject(error.Value());
   } else if (!info[1].IsString()) {
     Napi::Error error = Napi::Error::New(env, INVALID_SECOND_ARGUMENT);
+    deferred.Reject(error.Value());
+  } else if (!info[2].IsBoolean()) {
+    Napi::Error error = Napi::Error::New(env, INVALID_THIRD_ARGUMENT);
     deferred.Reject(error.Value());
   } else {
     std::string word = info[0].ToString().Utf8Value();
