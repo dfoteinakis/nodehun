@@ -679,6 +679,29 @@ struct hentry * Hunspell::checkword(const char * w, int * info, char ** root)
   return he;
 }
 
+// LEXIQA: prevent heap overflow when re-casing suggestion strings.
+// Suggestions are tight mystrdup() allocations (strlen+1). The in-place
+// mkallcap()/mkinitcap() helpers write the cased form back into the same
+// buffer via u16_u8(), which is bounded by MAXWORDUTF8LEN, not by the
+// buffer's real size. In Turkish/Azeri, uppercasing 'i' U+0069 -> 'İ'
+// U+0130 grows the form from 1 to 2 UTF-8 bytes, overrunning the
+// allocation and corrupting the heap; the damage only surfaces later as
+// "free(): invalid next size" in free_list. This is the only casing in
+// this Hunspell that grows the byte length, so we only act for tr/az and
+// leave every other locale untouched. Grow the slot to the worst case
+// (<=3 UTF-8 bytes per code point; the cased form keeps the same code
+// point count) before casing. Returns true if it is safe to cast: always
+// for non-tr/az (no growth possible), and for tr/az only if the realloc
+// succeeded.
+static inline bool lexiqa_grow_for_casing(char ** s, int langnum) {
+    if (langnum != LANG_tr && langnum != LANG_az) return true;
+    if (!s || !*s) return false;
+    char * resized = (char *) realloc(*s, 3 * strlen(*s) + 1);
+    if (!resized) return false;
+    *s = resized;
+    return true;
+}
+
 int Hunspell::suggest(char*** slst, const char * word)
 {
   int onlycmpdsug = 0;
@@ -790,11 +813,15 @@ int Hunspell::suggest(char*** slst, const char * word)
                         }
                         // aNew -> "a New" (instead of "a new")
                         for (int j = prevns; j < ns; j++) {
+                           // grow before the in-place mkinitcap2() below; must
+                           // happen before space/r are taken since realloc may move
+                           // the block (see lexiqa_grow_for_casing)
+                           bool grown = lexiqa_grow_for_casing(&(*slst)[j], langnum);
                            char * space = strchr((*slst)[j],' ');
                            if (space) {
                                 int slen = strlen(space + 1);
                                 // different case after space (need capitalisation)
-                                if ((slen < wl) && strcmp(cw + wl - slen, space + 1)) {
+                                if ((slen < wl) && strcmp(cw + wl - slen, space + 1) && grown) {
                                     w_char w[MAXWORDLEN];
                                     int wc = 0;
                                     char * r = (*slst)[j];
@@ -820,7 +847,7 @@ int Hunspell::suggest(char*** slst, const char * word)
                      mkinitcap2(wspace, unicw, nc);
                      ns = pSMgr->suggest(slst, wspace, ns, &onlycmpdsug);
                      for (int j=0; j < ns; j++) {
-                        mkallcap((*slst)[j]);
+                        if (lexiqa_grow_for_casing(&(*slst)[j], langnum)) mkallcap((*slst)[j]);
                         if (pAMgr && pAMgr->get_checksharps()) {
                             char * pos;
                             if (utf8) {
@@ -891,7 +918,7 @@ int Hunspell::suggest(char*** slst, const char * word)
 	      int oldns = ns;
               ns = pSMgr->ngsuggest(*slst, wspace, ns, pHMgr, maxdic);
               for (int j = oldns; j < ns; j++)
-                  mkallcap((*slst)[j]);
+                  if (lexiqa_grow_for_casing(&(*slst)[j], langnum)) mkallcap((*slst)[j]);
               break;
          }
       }
@@ -944,7 +971,7 @@ int Hunspell::suggest(char*** slst, const char * word)
 
   // capitalize
   if (capwords) for (int j=0; j < ns; j++) {
-      mkinitcap((*slst)[j]);
+      if (lexiqa_grow_for_casing(&(*slst)[j], langnum)) mkinitcap((*slst)[j]);
   }
 
   // expand suggestions with dot(s)
